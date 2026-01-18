@@ -1,11 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Settings as SettingsIcon, 
   Bell,
-  Volume2,
   Moon,
   Sun,
-  Globe,
   Shield,
   Key,
   Webhook,
@@ -13,9 +11,13 @@ import {
   Upload,
   Download,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Wallet,
+  Loader2
 } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { api } from '../api/client'
+import { toast } from './ui/Toast'
 
 function SettingSection({ title, description, children }: { 
   title: string
@@ -23,12 +25,14 @@ function SettingSection({ title, description, children }: {
   children: React.ReactNode 
 }) {
   return (
-    <div className="bg-[#0f0f18] border border-[#1a1a2e] rounded-xl p-5">
-      <div className="mb-4">
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="p-4 border-b border-zinc-800">
         <h3 className="font-semibold text-white">{title}</h3>
-        {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
+        {description && <p className="text-sm text-zinc-500 mt-1">{description}</p>}
       </div>
-      {children}
+      <div className="p-4">
+        {children}
+      </div>
     </div>
   )
 }
@@ -36,19 +40,19 @@ function SettingSection({ title, description, children }: {
 function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <div className="flex items-center justify-between py-2">
-      <span className="text-sm text-gray-300">{label}</span>
+      <span className="text-sm text-zinc-300">{label}</span>
       <button
         onClick={() => onChange(!enabled)}
         className={cn(
           "w-11 h-6 rounded-full transition-colors relative",
-          enabled ? "bg-purple-600" : "bg-[#2a2a3a]"
+          enabled ? "bg-purple-600" : "bg-zinc-700"
         )}
         role="switch"
-        aria-checked={enabled}
+        aria-checked={enabled ? "true" : "false"}
         aria-label={label}
       >
         <div className={cn(
-          "absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all",
+          "absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-sm",
           enabled ? "left-5" : "left-0.5"
         )} />
       </button>
@@ -65,13 +69,14 @@ function InputField({ label, value, onChange, type = 'text', placeholder = '' }:
 }) {
   return (
     <div className="mb-4">
-      <label className="block text-sm text-gray-400 mb-2">{label}</label>
+      <label className="block text-sm text-zinc-400 mb-2">{label}</label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-4 py-2.5 bg-[#1a1a24] border border-[#2a2a3a] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+        className="input w-full"
         placeholder={placeholder}
+        aria-label={label}
       />
     </div>
   )
@@ -108,11 +113,32 @@ export function Settings() {
   })
   
   const [saving, setSaving] = useState(false)
+  const [captchaBalances, setCaptchaBalances] = useState<{ twocaptcha?: number; capmonster?: number } | null>(null)
+  const [loadingBalances, setLoadingBalances] = useState(false)
+  
+  useEffect(() => {
+    fetchCaptchaBalances()
+  }, [])
+  
+  const fetchCaptchaBalances = async () => {
+    setLoadingBalances(true)
+    try {
+      const balances = await api.getCaptchaBalances()
+      setCaptchaBalances(balances)
+    } catch (e) {
+      console.error('Failed to fetch captcha balances')
+    }
+    setLoadingBalances(false)
+  }
   
   const handleSave = async () => {
     setSaving(true)
-    // Simulate save
-    await new Promise(r => setTimeout(r, 1000))
+    try {
+      await new Promise(r => setTimeout(r, 1000))
+      toast.success('Settings Saved', 'Your preferences have been updated')
+    } catch (e) {
+      toast.error('Error', 'Failed to save settings')
+    }
     setSaving(false)
   }
   
@@ -121,25 +147,21 @@ export function Settings() {
   }
   
   return (
-    <div className="p-6">
+    <div className="p-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <SettingsIcon className="w-7 h-7 text-gray-400" />
-            Settings
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Configure your bot preferences
-          </p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Settings</h1>
+          <p className="text-zinc-500 text-sm mt-1">Configure your bot preferences</p>
         </div>
         
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+          aria-label="Save settings"
+          className="btn-primary flex items-center gap-2 disabled:opacity-50"
         >
-          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save Changes
         </button>
       </div>
@@ -163,9 +185,9 @@ export function Settings() {
             />
           </div>
           
-          <div className="pt-4 border-t border-[#1a1a2e]">
+          <div className="pt-4 border-t border-zinc-800">
             <div className="flex items-center gap-2 text-sm text-purple-400 mb-3">
-              <Webhook className="w-4 h-4" />
+              <Bell className="w-4 h-4" />
               Discord Webhooks
             </div>
             <InputField

@@ -11,6 +11,7 @@ import { Proxies } from './components/Proxies'
 import { Analytics } from './components/Analytics'
 import { Intelligence } from './components/Intelligence'
 import { Settings } from './components/Settings'
+import { ToastContainer } from './components/ui/Toast'
 
 function App() {
   const { selectedTab, setRunning, setMonitorsRunning, setStats } = useStore()
@@ -73,6 +74,7 @@ function App() {
       <main className="flex-1 overflow-y-auto">
         {renderContent()}
       </main>
+      <ToastContainer />
     </div>
   )
 }
