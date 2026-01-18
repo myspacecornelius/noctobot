@@ -1,53 +1,99 @@
 """
 Shopify Product Monitor
-High-performance monitor for Shopify-based stores
+Production-ready monitor for Shopify-based stores with comprehensive scraping
 """
 
 import asyncio
 import time
-from typing import Optional, List, Dict, Any
+import hashlib
+import random
+from typing import Optional, List, Dict, Any, Set, Callable, Awaitable
+from datetime import datetime
 import httpx
 import structlog
 
-from .base import BaseMonitor, MonitorConfig, MonitorResult, ProductInfo
-from ..evasion.tls import TLSManager, create_stealth_session
+from .base import BaseMonitor, MonitorConfig, MonitorResult, ProductInfo, MonitorStatus
+from .products import ProductDatabase, CuratedProduct, product_db
+from .sites import Site, SiteType, SHOPIFY_STORES
+from ..evasion.tls import TLSManager
+from ..evasion.fingerprint import FingerprintManager
 
 logger = structlog.get_logger()
 
 
 class ShopifyMonitor(BaseMonitor):
     """
-    Advanced Shopify store monitor
+    Production-ready Shopify store monitor
     
     Features:
-    - products.json endpoint monitoring
-    - Individual product page monitoring
-    - Variant availability tracking
-    - Size filtering
-    - Rate limit handling
+    - Multi-store concurrent monitoring
+    - products.json endpoint scraping with pagination
+    - Atom feed monitoring for faster detection
+    - Variant availability tracking with size filtering
+    - Smart change detection (hash-based)
+    - Rate limit handling with exponential backoff
+    - Proxy rotation support
+    - Curated product keyword matching
     """
     
     # Shopify API endpoints
     PRODUCTS_ENDPOINT = "/products.json"
+    PRODUCTS_ENDPOINT_PAGINATED = "/products.json?limit=250&page={page}"
     COLLECTIONS_ENDPOINT = "/collections/{collection}/products.json"
     PRODUCT_ENDPOINT = "/products/{handle}.json"
+    ATOM_FEED = "/collections/all.atom"
+    SITEMAP = "/sitemap_products_1.xml"
     
-    def __init__(self, config: MonitorConfig, target_sizes: Optional[List[str]] = None):
+    # User agents pool
+    USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    ]
+    
+    def __init__(
+        self,
+        config: MonitorConfig,
+        target_sizes: Optional[List[str]] = None,
+        use_product_db: bool = True,
+        proxy_list: Optional[List[str]] = None
+    ):
         super().__init__(config)
         
-        self.target_sizes = target_sizes or []
+        self.target_sizes = self._normalize_sizes(target_sizes or [])
         self.base_url = config.site_url.rstrip('/')
+        self.use_product_db = use_product_db
+        self.proxy_list = proxy_list or []
         
-        # TLS fingerprint management
+        # TLS/Fingerprint management
         self.tls_manager = TLSManager()
+        self.fingerprint_manager = FingerprintManager()
         
         # Session management
         self._session: Optional[httpx.AsyncClient] = None
-        self._last_products_hash: Optional[str] = None
+        self._current_proxy_index = 0
+        
+        # Change detection
+        self._products_hash: Optional[str] = None
+        self._seen_product_ids: Set[str] = set()
+        self._seen_variants: Dict[str, Set[int]] = {}  # product_id -> set of variant_ids
         
         # Rate limiting
         self._request_times: List[float] = []
-        self._max_requests_per_minute = 30
+        self._max_requests_per_minute = config.delay // 1000 * 60 if config.delay else 30
+        self._consecutive_errors = 0
+        self._backoff_until: Optional[float] = None
+        
+        # Stats
+        self._total_requests = 0
+        self._successful_requests = 0
+        self._products_found = 0
+        
+        # Callbacks
+        self._on_new_product: Optional[Callable[[ProductInfo, Optional[CuratedProduct]], Awaitable[None]]] = None
+        self._on_restock: Optional[Callable[[ProductInfo, List[str]], Awaitable[None]]] = None
     
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session"""

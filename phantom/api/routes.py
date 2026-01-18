@@ -279,6 +279,149 @@ def create_app() -> FastAPI:
             return await engine._captcha_solver.get_balances()
         return {}
     
+    # ============ Monitors ============
+    
+    from ..monitors.manager import monitor_manager
+    from ..monitors.products import product_db
+    
+    @app.get("/api/monitors/status")
+    async def get_monitors_status():
+        """Get monitor status and statistics"""
+        return monitor_manager.get_stats()
+    
+    @app.post("/api/monitors/start")
+    async def start_monitors(background_tasks: BackgroundTasks):
+        """Start all monitors"""
+        async def _start():
+            await monitor_manager.start()
+        background_tasks.add_task(_start)
+        return {"message": "Monitors starting..."}
+    
+    @app.post("/api/monitors/stop")
+    async def stop_monitors(background_tasks: BackgroundTasks):
+        """Stop all monitors"""
+        async def _stop():
+            await monitor_manager.stop()
+        background_tasks.add_task(_stop)
+        return {"message": "Monitors stopping..."}
+    
+    @app.post("/api/monitors/shopify/setup")
+    async def setup_shopify_monitors(
+        target_sizes: Optional[List[str]] = None,
+        use_defaults: bool = True
+    ):
+        """Set up Shopify monitoring with default stores"""
+        monitor_manager.setup_shopify(target_sizes=target_sizes, use_defaults=use_defaults)
+        return {"message": "Shopify monitoring configured", "stores": len(monitor_manager.shopify_monitor.stores) if monitor_manager.shopify_monitor else 0}
+    
+    @app.post("/api/monitors/shopify/add-store")
+    async def add_shopify_store(
+        name: str,
+        url: str,
+        delay_ms: int = 3000,
+        target_sizes: Optional[List[str]] = None
+    ):
+        """Add a Shopify store to monitor"""
+        monitor_manager.add_shopify_store(name, url, delay_ms, target_sizes)
+        return {"message": f"Store '{name}' added"}
+    
+    @app.post("/api/monitors/footsites/setup")
+    async def setup_footsite_monitors(
+        sites: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None,
+        target_sizes: Optional[List[str]] = None,
+        delay_ms: int = 5000
+    ):
+        """Set up Footsite monitoring"""
+        monitor_manager.setup_footsites(sites=sites, keywords=keywords, target_sizes=target_sizes, delay_ms=delay_ms)
+        return {"message": "Footsite monitoring configured"}
+    
+    @app.get("/api/monitors/events")
+    async def get_monitor_events(limit: int = 50):
+        """Get recent monitor events"""
+        events = monitor_manager.get_recent_events(limit)
+        return {
+            "count": len(events),
+            "events": [
+                {
+                    "type": e.event_type,
+                    "source": e.source,
+                    "store": e.store_name,
+                    "product": e.product.title,
+                    "url": e.product.url,
+                    "sizes": e.product.sizes_available[:10],
+                    "price": e.product.price,
+                    "matched": e.matched_product.name if e.matched_product else None,
+                    "confidence": e.match_confidence,
+                    "priority": e.priority,
+                    "timestamp": e.timestamp.isoformat(),
+                }
+                for e in events
+            ]
+        }
+    
+    @app.get("/api/monitors/events/high-priority")
+    async def get_high_priority_events(limit: int = 20):
+        """Get high priority monitor events"""
+        events = monitor_manager.get_high_priority_events(limit)
+        return {
+            "count": len(events),
+            "events": [
+                {
+                    "type": e.event_type,
+                    "source": e.source,
+                    "store": e.store_name,
+                    "product": e.product.title,
+                    "url": e.product.url,
+                    "sizes": e.product.sizes_available[:10],
+                    "matched": e.matched_product.name if e.matched_product else None,
+                    "profit": e.matched_product.profit_dollar if e.matched_product else None,
+                    "timestamp": e.timestamp.isoformat(),
+                }
+                for e in events
+            ]
+        }
+    
+    @app.post("/api/monitors/auto-tasks")
+    async def configure_auto_tasks(
+        enabled: bool = True,
+        min_confidence: float = 0.7,
+        min_priority: str = "medium"
+    ):
+        """Configure automatic task creation"""
+        monitor_manager.enable_auto_tasks(enabled, min_confidence, min_priority)
+        return {"message": "Auto-task configuration updated", "enabled": enabled}
+    
+    # ============ Curated Products ============
+    
+    @app.get("/api/products/curated")
+    async def get_curated_products():
+        """Get curated product database"""
+        return {
+            "stats": product_db.get_stats(),
+            "products": [p.to_dict() for p in product_db.get_enabled()]
+        }
+    
+    @app.get("/api/products/curated/high-priority")
+    async def get_high_priority_products():
+        """Get high priority curated products"""
+        return {
+            "products": [p.to_dict() for p in product_db.get_high_priority()]
+        }
+    
+    @app.get("/api/products/curated/profitable")
+    async def get_profitable_products(min_profit: float = 50):
+        """Get profitable curated products"""
+        return {
+            "products": [p.to_dict() for p in product_db.get_profitable(min_profit)]
+        }
+    
+    @app.post("/api/products/load-json")
+    async def load_products_json(path: str):
+        """Load curated products from JSON file"""
+        count = monitor_manager.load_products_from_json(path)
+        return {"message": f"Loaded {count} products", "count": count}
+    
     # ============ Import/Export ============
     
     @app.post("/api/import/valor")
