@@ -102,21 +102,21 @@ class ShopifyStoreMonitor:
     async def _get_session(self) -> httpx.AsyncClient:
         """Get or create HTTP session with rotation"""
         if self._session is None or self._session.is_closed:
-            proxies = {"all://": self.proxy_url} if self.proxy_url else None
-            
-            self._session = httpx.AsyncClient(
-                timeout=15.0,
-                follow_redirects=True,
-                proxies=proxies,
-                headers={
+            client_kwargs = {
+                "timeout": 15.0,
+                "follow_redirects": True,
+                "headers": {
                     "User-Agent": random.choice(self.USER_AGENTS),
-                    "Accept": "application/json, text/plain, */*",
+                    "Accept": "application/json",
                     "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
                     "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
                 }
-            )
+            }
+            
+            if self.proxy_url:
+                client_kwargs["proxy"] = self.proxy_url
+            
+            self._session = httpx.AsyncClient(**client_kwargs)
         return self._session
     
     async def check(self) -> MonitorResult:

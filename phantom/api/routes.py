@@ -48,6 +48,40 @@ class TaskCreate(BaseModel):
     retry_delay: int = 2000
 
 
+class ShopifySetup(BaseModel):
+    target_sizes: Optional[List[str]] = None
+    use_defaults: bool = True
+
+
+class ShopifyStoreAdd(BaseModel):
+    name: str
+    url: str
+    delay_ms: int = 3000
+    target_sizes: Optional[List[str]] = None
+
+
+class FootsiteSetup(BaseModel):
+    sites: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    target_sizes: Optional[List[str]] = None
+    delay_ms: int = 5000
+
+
+class AutoTaskConfig(BaseModel):
+    enabled: bool = True
+    min_confidence: float = 0.7
+    min_priority: str = "medium"
+
+
+class ProxyGroupCreate(BaseModel):
+    name: str
+    proxies: str
+
+
+class ProxyTest(BaseModel):
+    group_id: Optional[str] = None
+
+
 class ProxyGroupCreate(BaseModel):
     name: str
     proxies: str  # Newline-separated
@@ -306,34 +340,22 @@ def create_app() -> FastAPI:
         return {"message": "Monitors stopping..."}
     
     @app.post("/api/monitors/shopify/setup")
-    async def setup_shopify_monitors(
-        target_sizes: Optional[List[str]] = None,
-        use_defaults: bool = True
-    ):
+    async def setup_shopify_monitors(data: ShopifySetup):
         """Set up Shopify monitoring with default stores"""
-        monitor_manager.setup_shopify(target_sizes=target_sizes, use_defaults=use_defaults)
-        return {"message": "Shopify monitoring configured", "stores": len(monitor_manager.shopify_monitor.stores) if monitor_manager.shopify_monitor else 0}
+        monitor_manager.setup_shopify(target_sizes=data.target_sizes, use_defaults=data.use_defaults)
+        store_count = len(monitor_manager.shopify_monitor.stores) if monitor_manager.shopify_monitor else 0
+        return {"message": "Shopify monitoring configured", "stores": store_count}
     
     @app.post("/api/monitors/shopify/add-store")
-    async def add_shopify_store(
-        name: str,
-        url: str,
-        delay_ms: int = 3000,
-        target_sizes: Optional[List[str]] = None
-    ):
+    async def add_shopify_store(data: ShopifyStoreAdd):
         """Add a Shopify store to monitor"""
-        monitor_manager.add_shopify_store(name, url, delay_ms, target_sizes)
-        return {"message": f"Store '{name}' added"}
+        monitor_manager.add_shopify_store(data.name, data.url, data.delay_ms, data.target_sizes)
+        return {"message": f"Store '{data.name}' added"}
     
     @app.post("/api/monitors/footsites/setup")
-    async def setup_footsite_monitors(
-        sites: Optional[List[str]] = None,
-        keywords: Optional[List[str]] = None,
-        target_sizes: Optional[List[str]] = None,
-        delay_ms: int = 5000
-    ):
+    async def setup_footsite_monitors(data: FootsiteSetup):
         """Set up Footsite monitoring"""
-        monitor_manager.setup_footsites(sites=sites, keywords=keywords, target_sizes=target_sizes, delay_ms=delay_ms)
+        monitor_manager.setup_footsites(sites=data.sites, keywords=data.keywords, target_sizes=data.target_sizes, delay_ms=data.delay_ms)
         return {"message": "Footsite monitoring configured"}
     
     @app.get("/api/monitors/events")
@@ -383,14 +405,10 @@ def create_app() -> FastAPI:
         }
     
     @app.post("/api/monitors/auto-tasks")
-    async def configure_auto_tasks(
-        enabled: bool = True,
-        min_confidence: float = 0.7,
-        min_priority: str = "medium"
-    ):
+    async def configure_auto_tasks(data: AutoTaskConfig):
         """Configure automatic task creation"""
-        monitor_manager.enable_auto_tasks(enabled, min_confidence, min_priority)
-        return {"message": "Auto-task configuration updated", "enabled": enabled}
+        monitor_manager.enable_auto_tasks(data.enabled, data.min_confidence, data.min_priority)
+        return {"message": "Auto-task configuration updated", "enabled": data.enabled}
     
     # ============ Curated Products ============
     
